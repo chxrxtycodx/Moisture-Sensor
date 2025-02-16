@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:async';
+import 'dart:convert';
 
 void main() {
   runApp(const MoistureMeterApp());
@@ -23,16 +26,16 @@ class MoistureMeterScreen extends StatefulWidget {
 
 class _MoistureMeterScreenState extends State<MoistureMeterScreen> {
   final List<Map<String, dynamic>> userPlants = [];
-  final Map<String, double> plantMoistureLevels = {
-    "Rose": 50,
-    "Cactus": 20,
-    "Oak Tree": 70,
-    "Apple Tree": 65,
-    "Blueberry Bush": 60,
+  final Map<String, Map<String, double>> plantMoistureRanges = {
+    "Rose": {"min": 40, "max": 60},
+    "Cactus": {"min": 10, "max": 30},
+    "Oak Tree": {"min": 60, "max": 80},
+    "Apple Tree": {"min": 50, "max": 70},
+    "Blueberry Bush": {"min": 55, "max": 65},
   };
 
-  // Fixed overall moisture level
-  final double overallMoistureLevel = 45.0;
+  // Fixed overall moisture level (will be updated via HTTP)
+  double overallMoistureLevel = 45.0;
 
   final Map<String, IconData> plantIcons = {
     "Rose": Icons.local_florist,
@@ -42,13 +45,65 @@ class _MoistureMeterScreenState extends State<MoistureMeterScreen> {
     "Blueberry Bush": Icons.grass,
   };
 
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    // Start periodic moisture level updates
+    _startMoistureUpdates();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel(); // Cancel the timer when the widget is disposed
+    super.dispose();
+  }
+
+  void _startMoistureUpdates() {
+    // Fetch moisture level every 5 seconds
+    _timer = Timer.periodic(Duration(seconds: 5), (timer) async {
+      double newMoistureLevel = await fetchMoistureLevel();
+      setState(() {
+        overallMoistureLevel = newMoistureLevel;
+        // Update current moisture for all plants
+        for (var plant in userPlants) {
+          plant["currentMoisture"] = overallMoistureLevel;
+        }
+      });
+    });
+  }
+
+  Future<double> fetchMoistureLevel() async {
+  try {
+    // Replace with your actual API endpoint
+    // final response = await http.get(Uri.parse('https://your-api-endpoint.com/moisture'));
+    final response = await http.get(Uri.parse('http://129.161.51.83:5000/moisture'));
+
+    if (response.statusCode == 200) {
+      // Parse the response body to get the moisture level
+      final data = json.decode(response.body);
+      return data['moistureLevel'].toDouble();
+    } else {
+      // If the server returns an error, return a default value
+      print('Failed to load moisture level: ${response.statusCode}');
+      return 45.0; // Fallback moisture level
+    }
+  } catch (e) {
+    // Handle network errors or other exceptions
+    print('Error fetching moisture level: $e');
+    return 45.0; // Fallback moisture level
+  }
+}
+
   void addPlant(String plant) {
     // Use the overallMoistureLevel as the initial currentMoisture
     setState(() {
       userPlants.add({
         "name": plant,
         "currentMoisture": overallMoistureLevel, // Fixed initial moisture
-        "minRequiredMoisture": plantMoistureLevels[plant] ?? 50.0,
+        "minMoisture": plantMoistureRanges[plant]!["min"] ?? 50.0,
+        "maxMoisture": plantMoistureRanges[plant]!["max"] ?? 50.0,
       });
     });
   }
@@ -88,7 +143,7 @@ class _MoistureMeterScreenState extends State<MoistureMeterScreen> {
                     child: SingleChildScrollView(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
-                        children: plantMoistureLevels.keys
+                        children: plantMoistureRanges.keys
                             .where((plant) =>
                                 plant.toLowerCase().contains(searchQuery))
                             .map((plant) {
@@ -96,7 +151,7 @@ class _MoistureMeterScreenState extends State<MoistureMeterScreen> {
                             leading: Icon(plantIcons[plant] ?? Icons.local_florist),
                             title: Text(plant),
                             subtitle: Text(
-                                "Requires ${plantMoistureLevels[plant]}% moisture"),
+                                "Requires ${plantMoistureRanges[plant]!["min"]}% - ${plantMoistureRanges[plant]!["max"]}% moisture"),
                             onTap: () {
                               addPlant(plant);
                               Navigator.pop(context);
@@ -143,6 +198,9 @@ class _MoistureMeterScreenState extends State<MoistureMeterScreen> {
                     itemCount: userPlants.length,
                     itemBuilder: (context, index) {
                       final plant = userPlants[index];
+                      final isMoistureInRange = plant["currentMoisture"] >=
+                              plant["minMoisture"] &&
+                          plant["currentMoisture"] <= plant["maxMoisture"];
                       return Card(
                         margin: EdgeInsets.all(10),
                         child: Padding(
@@ -166,10 +224,9 @@ class _MoistureMeterScreenState extends State<MoistureMeterScreen> {
                                       'Current Moisture: ${plant["currentMoisture"].toStringAsFixed(1)}%',
                                     ),
                                     Text(
-                                      'Minimum Required: ${plant["minRequiredMoisture"].toStringAsFixed(1)}%',
+                                      'Required Range: ${plant["minMoisture"].toStringAsFixed(1)}% - ${plant["maxMoisture"].toStringAsFixed(1)}%',
                                       style: TextStyle(
-                                        color: plant["currentMoisture"] >=
-                                                plant["minRequiredMoisture"]
+                                        color: isMoistureInRange
                                             ? Colors.green
                                             : Colors.red,
                                       ),
@@ -192,7 +249,15 @@ class _MoistureMeterScreenState extends State<MoistureMeterScreen> {
                                         ),
                                       ),
                                       Positioned(
-                                        bottom: (plant["minRequiredMoisture"] / 100) * 100,
+                                        bottom: (plant["minMoisture"] / 100) * 100,
+                                        child: Container(
+                                          height: 2,
+                                          width: 20,
+                                          color: Colors.blue,
+                                        ),
+                                      ),
+                                      Positioned(
+                                        bottom: (plant["maxMoisture"] / 100) * 100,
                                         child: Container(
                                           height: 2,
                                           width: 20,
@@ -202,8 +267,7 @@ class _MoistureMeterScreenState extends State<MoistureMeterScreen> {
                                       Container(
                                         height: (plant["currentMoisture"] / 100) * 100,
                                         width: 20,
-                                        color: plant["currentMoisture"] >=
-                                                plant["minRequiredMoisture"]
+                                        color: isMoistureInRange
                                             ? Colors.green
                                             : Colors.red,
                                       ),
