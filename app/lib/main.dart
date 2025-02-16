@@ -78,7 +78,7 @@ class _MoistureMeterScreenState extends State<MoistureMeterScreen> {
   try {
     // Replace with your actual API endpoint
     // final response = await http.get(Uri.parse('https://your-api-endpoint.com/moisture'));
-    final response = await http.get(Uri.parse('http://129.161.51.83:5000/moisture'));
+    final response = await http.get(Uri.parse('http://172.20.10.6:5000/moisture'));
 
     if (response.statusCode == 200) {
       // Parse the response body to get the moisture level
